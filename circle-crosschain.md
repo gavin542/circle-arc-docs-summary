@@ -863,33 +863,49 @@ await walletClient.writeContract({
 
 ## 5. Nanopayments & x402 Protocol
 
+> **Documentation Source:** 7 pages from [developers.circle.com/gateway/nanopayments](https://developers.circle.com/gateway/nanopayments)
+> Updated: 2026-03-08
+
 ### 5.1 Nanopayments Overview
 
 Gateway Nanopayments enables gas-free USDC payments as small as **$0.000001** by batching thousands of transactions into single onchain settlements.
 
 **Key Innovation:** Buyers sign offchain EIP-3009 `TransferWithAuthorization` messages (zero gas), sellers verify and serve immediately, Gateway settles net positions in bulk.
 
-### 5.2 Payment Flow
+**Core Capabilities:**
+- **Gas-free Architecture**: Buyers sign payment authorizations offchain at zero gas cost. Gateway settles in bulk, so neither party pays per-transaction fees.
+- **Minimum Payment**: $0.000001 USDC per transaction (through batched processing)
+- **Multi-chain Withdrawal**: Sellers accumulate payments in Gateway balances and withdraw to any supported blockchain
 
-1. Buyer deposits USDC into Gateway Wallet (one-time onchain tx)
-2. Buyer requests paid resource from seller
-3. Seller responds with HTTP 402 + payment requirements
-4. Buyer signs EIP-3009 authorization (offchain, zero gas)
-5. Buyer retries with signed authorization
-6. Seller verifies signature, serves resource immediately
-7. Gateway batches authorizations and settles net positions
+**Target Use Cases:**
+- **Agentic Commerce**: AI agents executing thousands of sub-cent payments per minute without gas friction
+- **Granular Billing**: Per-API-call, per-second compute, or per-dataset access charging
+- **Real-time Marketplaces**: Sub-cent pricing for services, models, and data
+- **Continuous Value Flows**: Pay-per-second content and streaming micropayments
+
+### 5.2 Payment Flow (7-Step)
+
+1. Buyer deposits USDC into Gateway Wallet contract (single onchain tx, one-time)
+2. Buyer requests paid resource from seller's API
+3. Seller responds with HTTP `402 Payment Required` + payment details
+4. Buyer signs EIP-3009 authorization offchain (zero gas)
+5. Buyer retries request with signed authorization in header
+6. Seller verifies signature and serves resource immediately
+7. Gateway batches authorizations and settles onchain positions
 
 ### 5.3 x402 Protocol
 
-An open standard for internet-native payments built on HTTP 402 Payment Required.
+An **open, neutral standard** for internet-native payments built on HTTP `402 Payment Required` status code. It functions as a **negotiation protocol** rather than a payment system itself, allowing flexible payment method implementation.
 
-**Three Headers:**
+**Problem Solved:** Traditional payment systems (credit cards with fixed fees, blockchain tx with gas costs) are unsuitable for high-frequency machine transactions and micropayments.
+
+**Three Key HTTP Headers:**
 
 | Header | Direction | Function |
 |--------|-----------|----------|
-| `PAYMENT-REQUIRED` | Server -> Client | Payment terms |
-| `PAYMENT-SIGNATURE` | Client -> Server | Signed payment authorization |
-| `PAYMENT-RESPONSE` | Server -> Client | Payment confirmation |
+| `PAYMENT-REQUIRED` | Server → Client | Server communicates payment specs (schemes, price, network, destination) |
+| `PAYMENT-SIGNATURE` | Client → Server | Client transmits signed proof of payment authorization |
+| `PAYMENT-RESPONSE` | Server → Client | Server confirms verified payment with the requested resource |
 
 **Protocol Flow:**
 1. Client GETs protected resource
@@ -897,88 +913,179 @@ An open standard for internet-native payments built on HTTP 402 Payment Required
 3. Client signs payment, retries with `PAYMENT-SIGNATURE` header
 4. Server verifies, returns resource + `PAYMENT-RESPONSE` header
 
+**Key Participants:**
+- **Buyers**: Construct payment payloads as HTTP clients requesting resources
+- **Sellers**: Declare accepted payment methods and verify authenticity
+- **Facilitators**: Optionally handle verification and settlement independently, allowing sellers to avoid direct blockchain interaction
+
+**Nanopayments + x402 Integration:** Buyers authorize offchain transfers via EIP-3009 signatures, Gateway aggregates authorizations, and net positions settle in bulk onchain — distributing gas costs across multiple transactions.
+
 ### 5.4 Batched Settlement Architecture
 
-**Three-Component Security Model:**
-- **TEE (AWS Nitro Enclave)**: Verifies signatures, computes net changes, signs batch with KMS-protected keys
-- **Onchain Verification**: Smart contract validates TEE signature before executing batch
-- **Cryptographic Attestations**: Proves enclave runs specific audited code
+Gateway aggregates multiple payment authorizations into a single onchain transaction.
+
+**Economic Impact:**
+
+| Settlement Type | Minimum Viable Payment |
+|----------------|----------------------|
+| Individual settlement | ~$0.01+ |
+| Batched settlement | $0.000001 |
+
+**Five-Stage Payment Lifecycle:**
+
+1. **Deposit**: Buyer transfers USDC to Gateway Wallet contract (one-time onchain tx)
+2. **Request**: Buyer requests resource; seller responds with 402 Payment Required
+3. **Authorization**: Buyer signs EIP-3009 `TransferWithAuthorization` offchain (zero gas)
+4. **Settle & Serve**: Seller submits authorization to Gateway; funds locked, seller credited immediately
+5. **Batch Settlement**: Gateway periodically computes net balance changes and submits single onchain tx
+
+**Three-Component Non-Custodial Security Model:**
+- **TEE (AWS Nitro Enclave)**: Verifies signatures, computes net balance changes, signs batch results with KMS-protected keys
+- **Onchain Verification**: Gateway Wallet smart contract validates TEE signature before executing batch
+- **Cryptographic Attestations**: AWS Nitro produces verifiable proof that the enclave runs specific audited code
 
 **Balance States:**
-- `available`: Spendable balance
-- When authorization created: funds locked (removed from available)
-- After settlement: net positions applied
+
+| State | Definition |
+|-------|-----------|
+| `available` | Spendable balance after deposit or settled batch payments |
+
+When authorization created → funds locked (removed from available). After settlement → net positions applied.
+
+**Withdrawal:** Post-settlement withdrawals are instant (same-chain) or near-instant (cross-chain via minting infrastructure).
 
 ### 5.5 EIP-3009 Signing for Nanopayments
 
-**Domain:**
+Manually construct and sign EIP-3009 `TransferWithAuthorization` messages that authorize Circle Gateway to transfer USDC from your Gateway balance.
+
+**Prerequisites:**
+- EVM wallet with private key access
+- USDC deposited in a Gateway Wallet contract
+- Understanding of EIP-712 typed data signing
+- Viem library installed
+
+**Domain Configuration** (uses custom domain, distinct from standard USDC domain):
 ```typescript
 {
-  name: "GatewayWalletBatched",
+  name: "GatewayWalletBatched",   // Custom batching domain name
   version: "1",
-  chainId: 5042002,  // Arc Testnet
+  chainId: 5042002,               // Arc Testnet
   verifyingContract: GATEWAY_WALLET_ADDRESS
 }
 ```
 
-**Typed Data:**
+**Typed Data (6 fields per EIP-3009 spec):**
 ```typescript
 const types = {
   TransferWithAuthorization: [
     { name: "from", type: "address" },
     { name: "to", type: "address" },
-    { name: "value", type: "uint256" },
+    { name: "value", type: "uint256" },    // Smallest unit: 10,000 = 0.01 USDC
     { name: "validAfter", type: "uint256" },
-    { name: "validBefore", type: "uint256" },
-    { name: "nonce", type: "bytes32" }
+    { name: "validBefore", type: "uint256" },  // Must be at least 3 days in future!
+    { name: "nonce", type: "bytes32" }     // Unique random 32-byte value
   ]
 };
 ```
 
-**Critical:** `validBefore` must be at least 3 days in the future.
+**Critical Requirements:**
+- `validBefore` must be **at least 3 days in the future**, otherwise Gateway rejects
+- `nonce` must be a unique random 32-byte value
+- `value` expressed in smallest unit (10,000 units = 0.01 USDC)
 
-### 5.6 Buyer SDK Implementation
+**Signing:** Uses Viem's `signTypedData` function to generate EIP-712 signatures with account credentials.
 
+**Payload Transmission:** Complete authorization data encoded as base64 JSON, transmitted via `Payment-Signature` HTTP header.
+
+**Alternative:** The `BatchEvmScheme` class automates domain construction, nonce generation, and payload encoding for existing x402 protocol clients.
+
+### 5.6 Buyer Quickstart (Pay for Resources)
+
+**Prerequisites:** Node.js v18+, EVM wallet private key, Testnet USDC (from Circle Faucet), Testnet ETH for deposit tx
+
+**Project Setup:**
+```shell
+mkdir nanopayments-buyer && cd nanopayments-buyer
+npm init -y
+npm pkg set type=module
+npm pkg set scripts.pay="tsx --env-file=.env pay.ts"
+```
+
+**Dependencies:**
+```shell
+npm install @circle-fin/x402-batching viem tsx typescript
+npm install --save-dev @types/node
+```
+
+**Environment:** `.env` file with `PRIVATE_KEY=0x...`
+
+**Core Implementation (`pay.ts`):**
 ```typescript
-import { GatewayClient } from "@circlefin/x402-batching/client";
+import { GatewayClient } from "@circle-fin/x402-batching/client";
 
 const client = new GatewayClient({
   chain: "arcTestnet",
   privateKey: process.env.PRIVATE_KEY as `0x${string}`,
+  // rpcUrl: "...",  // Optional: custom RPC
 });
 
-// Deposit (one-time)
-await client.deposit(1_000_000n);  // 1 USDC
-
-// Pay for resource
-const { data, status } = await client.pay("https://api.example.com/premium-data");
-
-// Check balance
+// Check balances
 const balances = await client.getBalances();
 
-// Withdraw
-await client.withdraw(500_000n);  // 0.5 USDC
+// Deposit USDC (one-time, if below threshold)
+await client.deposit("1");  // 1 USDC
+
+// Check if URL supports x402 batching
+const support = await client.supports("https://api.example.com/premium-data");
+
+// Pay for resource (handles full 402 negotiation automatically)
+const { data, status } = await client.pay("https://api.example.com/premium-data");
+
+// Withdraw (same-chain)
+await client.withdraw("0.5");
+
+// Withdraw (cross-chain)
+await client.withdraw("0.5", { chain: "baseSepolia" });
 ```
 
+**Run:** `npm run pay`
+
 **Key Methods:**
-- `deposit(amount)` -- Deposit USDC to Gateway
-- `pay<T>(url)` -- Full x402 negotiation automatically
-- `withdraw(amount, options?)` -- Same-chain or cross-chain withdrawal
-- `getBalances()` -- Check wallet + Gateway balances
-- `supports(url)` -- Check x402 support
+- `deposit(amount, options?)` → `DepositResult` (approve tx hash + deposit tx hash)
+- `pay<T>(url, options?)` → `PayResult<T>` (full x402 negotiation automatically)
+- `withdraw(amount, options?)` → `WithdrawResult` (same-chain or cross-chain)
+- `getBalances(address?)` → `Balances` (wallet + Gateway balances)
+- `supports(url)` → `SupportsResult` (check x402 support)
 
-### 5.7 Seller SDK Implementation
+### 5.7 Seller Quickstart (Accept Payments)
 
+**Prerequisites:** Node.js v18+, EVM wallet address for receiving USDC
+
+**Project Setup:**
+```shell
+mkdir nanopayments-seller && cd nanopayments-seller
+npm init -y
+npm pkg set type=module
+npm pkg set scripts.start="tsx server.ts"
+```
+
+**Dependencies:**
+```shell
+npm install @circle-fin/x402-batching @x402/core @x402/evm viem express tsx typescript
+npm install --save-dev @types/node @types/express
+```
+
+**Core Implementation (`server.ts`):**
 ```typescript
 import express from "express";
-import { createGatewayMiddleware } from "@circlefin/x402-batching/server";
+import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 
 const app = express();
 const gateway = createGatewayMiddleware({
   sellerAddress: "0xYOUR_WALLET_ADDRESS",
-  networks: ["eip155:5042002"],  // Optional: restrict chains
 });
 
+// Protect route with payment requirement
 app.get("/premium-data", gateway.require("$0.01"), (req, res) => {
   const { payer, amount, network } = req.payment!;
   res.json({ secret: "Premium content", paid_by: payer });
@@ -987,28 +1094,65 @@ app.get("/premium-data", gateway.require("$0.01"), (req, res) => {
 app.listen(3000);
 ```
 
-**For non-Express:**
+**Testing:** `curl http://localhost:3000/premium-data` → returns 402 without payment
+
+**Advanced: Non-Express Usage (BatchFacilitatorClient):**
 ```typescript
-import { BatchFacilitatorClient } from "@circlefin/x402-batching/server";
+import { BatchFacilitatorClient } from "@circle-fin/x402-batching/server";
 const facilitator = new BatchFacilitatorClient();
 const settlement = await facilitator.settle(payload, requirements);
 ```
+
+**Optional Configuration:**
+- **Network Restriction**: `networks: ["eip155:5042002"]` — only accept Arc Testnet payments
+- **Time Requirement**: Payment signatures must have `validBefore` at least 3 days in the future, otherwise Gateway rejects
 
 ### 5.8 Nanopayments SDK Reference
 
 **Package:** `@circle-fin/x402-batching`
 
 **Buyer Exports (`/client`):**
-- `GatewayClient` -- Full client for deposits, payments, withdrawals
-- `BatchEvmScheme` -- Low-level payment scheme implementation
-- `registerBatchScheme` -- Register with x402Client
+
+| Class/Function | Description |
+|---------------|-------------|
+| `GatewayClient` | Full client for deposits, payments, withdrawals |
+| `BatchEvmScheme` | Low-level `SchemeNetworkClient` implementation for custom payment flows |
+| `registerBatchScheme` | Register with x402Client |
+
+**GatewayClient Constructor:**
+- `config.chain` (required): Supported blockchain name (e.g., `"arcTestnet"`)
+- `config.privateKey` (required): Signing private key (`0x${string}`)
+- `config.rpcUrl` (optional): Custom RPC URL
+
+**GatewayClient Methods:**
+- `deposit(amount, options?)` → `DepositResult` { approveTxHash, depositTxHash }
+- `pay<T>(url, options?)` → `PayResult<T>` { data, status }
+- `withdraw(amount, options?)` → `WithdrawResult` (supports `{ chain: "baseSepolia" }`)
+- `getBalances(address?)` → `Balances` { wallet, gateway }
+- `supports(url)` → `SupportsResult`
+
+**BatchEvmScheme Methods:**
+- `createPaymentPayload(x402Version, paymentRequirements)` → Creates signed EIP-3009 message
 
 **Seller Exports (`/server`):**
-- `createGatewayMiddleware` -- Express middleware factory
-- `BatchFacilitatorClient` -- Direct settlement client
-  - `verify(payload, requirements)` -- Validate payment
-  - `settle(payload, requirements)` -- Batch for settlement
-  - `getSupported()` -- List supported schemes/networks
+
+| Class/Function | Description |
+|---------------|-------------|
+| `createGatewayMiddleware` | Express middleware factory |
+| `BatchFacilitatorClient` | Direct settlement client for non-Express frameworks |
+
+**createGatewayMiddleware:**
+- `require(price)` → Express middleware; attaches `req.payment` on success
+
+**BatchFacilitatorClient Methods:**
+- `verify(payload, requirements)` → `VerifyResponse`
+- `settle(payload, requirements)` → `SettleResponse`
+- `getSupported()` → `SupportedResponse`
+
+**Utility Functions:**
+- `supportsBatching()` — Check if batching is supported
+- `isBatchPayment()` — Server-side alias
+- `getVerifyingContract()` — Extract Gateway Wallet address
 
 **Constants:**
 - `CIRCLE_BATCHING_NAME`: `'GatewayWalletBatched'`
