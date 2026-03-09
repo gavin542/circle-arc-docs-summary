@@ -4,7 +4,7 @@ A comprehensive, structured summary of **Circle platform** and **Arc Network** o
 
 All information is sourced and consolidated from the official [Circle](https://developers.circle.com/) and [Arc](https://docs.arc.network) websites, structured into clean Markdown files so that AI assistants (Claude, Cursor, ChatGPT, etc.) can directly ingest and reference the full technical details in a single context.
 
-As a practical demonstration, I built a simple Web3 card game -- [Doudizhu Arc Edition](https://github.com/gavin542/doudizhu-arc) -- using the technologies described in these docs, with Arc and Circle serving as the on-chain settlement layer for game stakes.
+As practical demonstrations, I built several projects using the technologies described in these docs -- including a Web3 card game, an x402 AI paid API, a multi-chain fund dashboard, a cross-chain payment aggregator, and an NFT airdrop platform. See [Related Projects](#related-projects) below.
 
 ## What is Circle & Arc?
 
@@ -60,7 +60,11 @@ This is an **unofficial, community-created summary** based on Circle's public do
 
 ## Related Projects
 
-- [doudizhu-arc](https://github.com/gavin542/doudizhu-arc) - Web3 card game on Arc Testnet (USDC betting + on-chain leaderboard)
+- [doudizhu-arc](https://github.com/gavin542/doudizhu-arc) - Web3 card game on Arc Testnet (USDC betting + on-chain leaderboard) | [Live Demo](https://gavin542.github.io/doudizhu-arc/)
+- [arc-x402-ai-api](https://github.com/gavin542/arc-x402-ai-api) - x402 AI Agent Paid API with per-call USDC payments | [Live Demo](https://gavin542.github.io/arc-x402-ai-api/)
+- [arc-multichain-dashboard](https://github.com/gavin542/arc-multichain-dashboard) - Multi-chain USDC/EURC fund dashboard across Arc & Sepolia | [Live Demo](https://gavin542.github.io/arc-multichain-dashboard/)
+- [arc-crosschain-pay-aggregator](https://github.com/gavin542/arc-crosschain-pay-aggregator) - Cross-chain payment aggregator comparing Bridge Kit vs Gateway vs CCTP routing | [Live Demo](https://gavin542.github.io/arc-crosschain-pay-aggregator/)
+- [arc-nft-airdrop-platform](https://github.com/gavin542/arc-nft-airdrop-platform) - NFT airdrop platform supporting ERC-721 & ERC-1155 | [Live Demo](https://gavin542.github.io/arc-nft-airdrop-platform/)
 
 
 ## License
